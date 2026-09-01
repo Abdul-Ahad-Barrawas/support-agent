@@ -4,36 +4,43 @@ A multi-step AI agent that automatically classifies, prioritizes, and responds t
 
 ## Architecture
 
+```mermaid
+flowchart TD
+    A[Incoming ticket]:::start --> B["Intent classifier<br/>Bug · billing · feature · complaint"]:::tool
+    B --> C["Priority scorer<br/>Sentiment + urgency signals"]:::tool
+    C --> D{Critical priority?}:::gate
+    D -->|Yes| E[Escalate to human]:::handoff
+    D -->|No| F["KB retrieval<br/>Search FAQ + policy docs"]:::tool
+    F --> G["Response drafter<br/>Generate grounded reply"]:::tool
+    G --> H{"Confidence ≥ threshold?"}:::gate
+    H -->|No| I[Flag for review]:::handoff
+    H -->|Yes| J[Send drafted response]:::output
+
+    classDef start fill:#eeeeee,stroke:#999999,color:#333333
+    classDef tool fill:#d1f5ea,stroke:#0e9f6e,color:#065f46
+    classDef gate fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef handoff fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+    classDef output fill:#dcfce7,stroke:#16a34a,color:#14532d
 ```
-Incoming Ticket
-      │
-      ▼
-┌─────────────────┐
-│ Intent Classifier│ ← Tool 1: Categorize (billing, technical, etc.)
-└────────┬────────┘
-         ▼
-┌─────────────────┐
-│ Priority Scorer  │ ← Tool 2: Sentiment + keyword urgency
-└────────┬────────┘
-         ▼
-   ┌──────────┐     YES
-   │ Critical?├──────────► Escalate to Human
-   └─────┬────┘
-      NO ▼
-┌─────────────────┐
-│  KB Retriever   │ ← Tool 3: ChromaDB vector search
-└────────┬────────┘
-         ▼
-┌─────────────────┐
-│ Response Drafter │ ← Tool 4: LLM generates grounded reply
-└────────┬────────┘
-         ▼
-   ┌───────────┐    NO
-   │ Confident?├──────────► Flag for Human Review
-   └─────┬─────┘
-      YES ▼
-  Send Drafted Response
-```
+
+*Teal = agent tool · Amber = decision gate · Coral = human handoff · Green = output*
+
+Each box maps directly to code:
+
+| Diagram node               | Kind          | File                                                | Function                |
+|-----------------------------|---------------|------------------------------------------------------|--------------------------|
+| Incoming ticket              | input         | [`src/agent/state.py`](src/agent/state.py)           | `TicketState` (shared state passed between every node) |
+| Intent classifier            | Tool 1        | [`src/tools/intent_classifier.py`](src/tools/intent_classifier.py) | `classify_intent()`      |
+| Priority scorer              | Tool 2        | [`src/tools/priority_scorer.py`](src/tools/priority_scorer.py)     | `score_priority()`       |
+| Critical priority? (gate)    | decision      | [`src/agent/graph.py`](src/agent/graph.py)           | `route_after_priority()` |
+| Escalate to human            | handoff       | [`src/agent/graph.py`](src/agent/graph.py)           | `escalate_node()`        |
+| KB retrieval                 | Tool 3        | [`src/tools/kb_retriever.py`](src/tools/kb_retriever.py) + [`src/knowledge/vector_store.py`](src/knowledge/vector_store.py) | `retrieve_from_kb()` (ChromaDB similarity search) |
+| Response drafter             | Tool 4        | [`src/tools/response_drafter.py`](src/tools/response_drafter.py)   | `draft_response()`       |
+| Confidence ≥ threshold? (gate) | decision    | [`src/agent/graph.py`](src/agent/graph.py)           | `route_after_draft()`    |
+| Flag for review              | handoff       | [`src/agent/graph.py`](src/agent/graph.py)           | `flag_node()`            |
+| Send drafted response        | output        | [`src/agent/graph.py`](src/agent/graph.py)           | `send_node()`            |
+
+The whole pipeline is wired together as a LangGraph state machine in `build_agent_graph()` inside [`src/agent/graph.py`](src/agent/graph.py).
 
 ## Tech Stack
 
@@ -53,30 +60,29 @@ Incoming Ticket
 ```
 support-agent/
 ├── config/
-│   └── settings.py              # All config in one place
+│   └── settings.py              # All config in one place (CONFIDENCE_THRESHOLD, provider, etc.)
 ├── data/
-│   ├── raw/                     # Raw ticket datasets (Bitext, Kaggle)
-│   ├── knowledge_base/          # FAQ and policy markdown files
-│   └── golden_set/              # Ground-truth evaluation set (CSV)
+│   ├── raw/                     # Raw ticket datasets (Bitext, Kaggle) — populate locally
+│   ├── knowledge_base/
+│   │   └── billing_faq.md       # FAQ/policy docs the KB retriever searches
+│   └── golden_set/
+│       └── golden_qa.csv        # Ground-truth evaluation set
 ├── src/
 │   ├── agent/
-│   │   ├── graph.py             # LangGraph pipeline definition
-│   │   └── state.py             # TicketState TypedDict
+│   │   ├── graph.py             # LangGraph pipeline — wires nodes + decision gates
+│   │   └── state.py             # TicketState TypedDict — shared state through the graph
 │   ├── tools/
-│   │   ├── intent_classifier.py # Tool 1
-│   │   ├── priority_scorer.py   # Tool 2
-│   │   ├── kb_retriever.py      # Tool 3
-│   │   └── response_drafter.py  # Tool 4
+│   │   ├── intent_classifier.py # Tool 1 — classify_intent()
+│   │   ├── priority_scorer.py   # Tool 2 — score_priority()
+│   │   ├── kb_retriever.py      # Tool 3 — retrieve_from_kb()
+│   │   └── response_drafter.py  # Tool 4 — draft_response()
 │   ├── knowledge/
-│   │   └── vector_store.py      # ChromaDB wrapper
+│   │   └── vector_store.py      # ChromaDB wrapper used by the KB retriever
 │   └── evaluation/
 │       └── evaluator.py         # Golden set eval + ablation runner
 ├── app/
 │   └── streamlit_app.py         # Streamlit frontend
-├── notebooks/
-│   └── exploration.ipynb        # Data exploration
-├── tests/
-│   └── (unit tests)
+├── tests/                       # Unit tests (scaffolded, add as tools are implemented)
 ├── requirements.txt
 ├── .env.example
 └── README.md
