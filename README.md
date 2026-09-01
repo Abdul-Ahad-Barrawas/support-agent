@@ -4,37 +4,12 @@ A multi-step AI agent that automatically classifies, prioritizes, and responds t
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    A[Incoming ticket] --> B[Intent classifier]
-    B --> C[Priority scorer]
-    C --> D{Critical priority?}
-    D -->|Yes| E[Escalate to human]
-    D -->|No| F[KB retrieval]
-    F --> G[Response drafter]
-    G --> H{Confidence above threshold?}
-    H -->|No| I[Flag for review]
-    H -->|Yes| J[Send drafted response]
-
-    class A startNode
-    class B,C,F,G toolNode
-    class D,H gateNode
-    class E,I handoffNode
-    class J outputNode
-
-    classDef startNode fill:#eeeeee,stroke:#999999,color:#333333
-    classDef toolNode fill:#d1f5ea,stroke:#0e9f6e,color:#065f46
-    classDef gateNode fill:#fef3c7,stroke:#d97706,color:#78350f
-    classDef handoffNode fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
-    classDef outputNode fill:#dcfce7,stroke:#16a34a,color:#14532d
-```
+![Agent pipeline architecture](docs/architecture.svg)
 
 - **Intent classifier** — categorizes as bug · billing · feature · complaint
 - **Priority scorer** — sentiment + urgency signals
 - **KB retrieval** — searches FAQ + policy docs
 - **Response drafter** — generates a grounded reply
-
-*Teal = agent tool · Amber = decision gate · Coral = human handoff · Green = output*
 
 Each box maps directly to code:
 
