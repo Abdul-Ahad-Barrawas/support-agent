@@ -1,0 +1,21 @@
+# === Core Agent Framework ===
+langgraph>=0.2.0            # Agent orchestration (state machine)
+langchain>=0.3.0            # Tools, prompts, chains
+langchain-openai>=0.2.0     # OpenAI LLM integration
+langchain-groq>=0.2.0       # Groq (free fast inference - backup)
+
+# === Vector Store & Embeddings ===
+chromadb>=0.5.0             # Local vector DB (no infra needed)
+sentence-transformers>=3.0  # Free local embeddings (all-MiniLM-L6-v2)
+
+# === UI ===
+streamlit>=1.38.0           # Frontend
+
+# === Data & Evaluation ===
+pandas>=2.2.0               # Data wrangling
+scikit-learn>=1.5.0         # Classification metrics (precision, recall, F1)
+python-dotenv>=1.0.0        # Env variable management
+
+# === Dev & Testing ===
+pytest>=8.0.0               # Unit tests
+notebook>=7.0.0             # Jupyter for exploration

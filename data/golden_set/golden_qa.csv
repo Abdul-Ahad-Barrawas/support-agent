@@ -1,0 +1,6 @@
+ticket_text,expected_intent,expected_priority,expected_action,reference_response
+"I was charged twice for my subscription this month. Please refund the extra charge.",billing,high,send,"We apologize for the duplicate charge. We've initiated a refund that will appear in 3-5 business days."
+"How do I reset my password? I forgot it and can't log in.",account_access,low,send,"You can reset your password by clicking 'Forgot Password' on the login page. A reset link will be sent to your registered email."
+"Your product is absolute garbage. I'm contacting my lawyer if this isn't resolved TODAY.",complaint,critical,escalate,"N/A - escalated to human agent"
+"Would be great if you could add dark mode to the mobile app.",feature_request,low,send,"Thank you for the suggestion! We've logged this as a feature request and our product team will review it."
+"My dashboard has been showing a loading error for 3 days. Nothing works.",technical_issue,high,send,"We're sorry about the dashboard issue. Our team has identified the problem and a fix is being deployed. Please try clearing your browser cache and refreshing."
