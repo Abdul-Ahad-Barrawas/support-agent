@@ -96,6 +96,10 @@ cp .env.example .env
 streamlit run app/streamlit_app.py
 ```
 
+## Sprint Schedule
+
+Gantt chart mapping every task in this README to a day and an owner: https://claude.ai/code/artifact/289922ef-e1f2-41f1-a1aa-8064d3aa2fd8
+
 ## Team Assignments
 
 ### Strong Technical Members (2-3 people)
