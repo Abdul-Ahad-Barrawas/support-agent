@@ -6,3 +6,4 @@ data/chroma_db/
 *.egg-info/
 dist/
 build/
+docs/dev-learning-notes.md
