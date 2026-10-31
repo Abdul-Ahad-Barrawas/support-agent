@@ -101,9 +101,11 @@ if "result" in st.session_state:
     col3.metric("Sentiment", f"{result['sentiment_score']:+.2f}")
     col4.metric("Response confidence", f"{result['response_confidence']:.0%}")
 
+    # LLM output and trace lines are shaped by the customer's ticket — render them
+    # as plain text so injected Markdown (e.g. tracking-pixel images) never loads
     if result["drafted_response"]:
         st.subheader("Drafted response")
-        st.markdown(result["drafted_response"])
+        st.text(result["drafted_response"])
 
     with st.expander(f"Retrieved KB docs ({len(result['retrieved_docs'])})"):
         if not result["retrieved_docs"]:
@@ -114,4 +116,4 @@ if "result" in st.session_state:
 
     with st.expander("Reasoning trace", expanded=True):
         for i, step in enumerate(result["reasoning_trace"], 1):
-            st.markdown(f"{i}. {step}")
+            st.text(f"{i}. {step}")
