@@ -39,13 +39,14 @@ def classify_intent(state: TicketState) -> dict:
         result = structured_llm.invoke(prompt)
         intent = result.intent
         confidence = result.confidence
-    except Exception:
+        trace = f"Classified intent: {intent} ({confidence:.2f})"
+    except Exception as e:
         intent = "general_inquiry"
         confidence = 0.0
+        trace = f"Intent classification failed ({type(e).__name__}) — defaulting to {intent} (0.00)"
 
     return {
         "intent": intent,
         "intent_confidence": confidence,
-        "reasoning_trace": state.get("reasoning_trace", [])
-        + [f"Classified intent: {intent} ({confidence:.2f})"],
+        "reasoning_trace": state.get("reasoning_trace", []) + [trace],
     }

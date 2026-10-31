@@ -56,6 +56,7 @@ support-agent/
 ├── src/
 │   ├── agent/
 │   │   ├── graph.py             # LangGraph pipeline — wires nodes + decision gates
+│   │   ├── single_shot.py       # One-LLM-call baseline for the ablation table
 │   │   └── state.py             # TicketState TypedDict — shared state through the graph
 │   ├── tools/
 │   │   ├── intent_classifier.py # Tool 1 — classify_intent()
@@ -65,10 +66,11 @@ support-agent/
 │   ├── knowledge/
 │   │   └── vector_store.py      # ChromaDB wrapper used by the KB retriever
 │   └── evaluation/
-│       └── evaluator.py         # Golden set eval + ablation runner
+│       ├── evaluator.py         # Golden set eval + ablation runner
+│       └── build_golden_set.py  # Labels + samples Kaggle tickets into the golden set
 ├── app/
 │   └── streamlit_app.py         # Streamlit frontend
-├── tests/                       # Unit tests (scaffolded, add as tools are implemented)
+├── tests/                       # Unit + integration tests (LLM and embeddings stubbed)
 ├── requirements.txt
 ├── .env.example
 └── README.md
@@ -92,8 +94,18 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env → add your Groq API key (free at console.groq.com)
 
-# 5. Run the app
+# 5. Run the app (indexes data/knowledge_base/ on first run)
 streamlit run app/streamlit_app.py
+```
+
+### Other commands
+
+```bash
+pytest                                        # unit + integration tests (no API calls)
+python -m src.knowledge.vector_store          # rebuild the KB index after editing data/knowledge_base/
+python -m src.evaluation.build_golden_set     # regenerate the Kaggle rows of the golden set (needs data/raw/)
+python -m src.evaluation.evaluator            # score the full agent on the golden set
+python -m src.evaluation.evaluator --ablation # fill in the ablation table (4 variants)
 ```
 
 ## Sprint Schedule
@@ -120,6 +132,14 @@ Gantt chart mapping every task in this README to a day and an owner: https://cla
 ### Golden Test Set
 50-100 support tickets with ground-truth labels for intent, priority, action, and reference response. This is what separates a real project from a toy demo.
 
+`data/golden_set/golden_qa.csv` has 73 rows: 5 hand-written (`source=hand`) and 68 sampled from the Kaggle dataset (`source=kaggle`) by `build_golden_set.py` — 8 escalation tickets plus ~10 per intent, seeded so it is reproducible. The Kaggle labels are **derived by rules**, not human-annotated:
+
+- **intent** — dataset queue + ticket type + keyword rules (the dataset's queues are noisy, so billing also requires billing wording, etc.)
+- **priority** — dataset priority; a `high` *incident* mentioning a breach / outage / legal threat is promoted to `critical` (the dataset has no critical level)
+- **action** — `critical` → `escalate`, everything else → `send`
+
+Spot-check these before reporting results — `complaint` is the weakest label, as the dataset's tone is mostly neutral B2B. Hand-corrected rows should be changed to `source=hand` so a regeneration keeps them.
+
 ### Ablation Table
 Run 4 agent variants against the golden set and compare:
 
@@ -133,5 +153,8 @@ Run 4 agent variants against the golden set and compare:
 This table proves each component adds value — that's what hiring managers look for.
 
 ## Data Sources
-- **Ticket datasets**: Bitext customer support dataset, Kaggle support ticket classification
+- **Ticket dataset**: [Customer IT Support – Ticket Dataset](https://www.kaggle.com/datasets/tobiasbueck/multilingual-customer-support-tickets) (Tobias Bueck, CC BY-NC 4.0) — ~28.6k synthetic tickets (16.3k English) with subject, body, reference answer, queue, priority, and type. Not committed; download it with:
+  ```bash
+  python -c "import kagglehub; kagglehub.dataset_download('tobiasbueck/multilingual-customer-support-tickets', output_dir='data/raw/customer-support-tickets')"
+  ```
 - **KB content**: Write your own (simulated company FAQ/policies)

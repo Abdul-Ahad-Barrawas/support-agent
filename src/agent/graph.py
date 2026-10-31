@@ -11,9 +11,11 @@ Flow:
     → [DECISION] confident? → send | flag_for_review
 """
 
+from functools import partial
+
 from langgraph.graph import StateGraph, END
 
-from src.agent.state import TicketState
+from src.agent.state import TicketState, new_ticket_state
 from src.tools.intent_classifier import classify_intent
 from src.tools.priority_scorer import score_priority
 from src.tools.kb_retriever import retrieve_from_kb
@@ -28,9 +30,9 @@ def route_after_priority(state: TicketState) -> str:
     return "retrieve"
 
 
-def route_after_draft(state: TicketState) -> str:
+def route_after_draft(state: TicketState, threshold: float = CONFIDENCE_THRESHOLD) -> str:
     """Decision gate 2: check confidence before sending."""
-    if state["response_confidence"] >= CONFIDENCE_THRESHOLD:
+    if state["response_confidence"] >= threshold:
         return "send"
     return "flag_for_review"
 
@@ -49,7 +51,7 @@ def send_node(state: TicketState) -> dict:
     return {
         "final_action": "send",
         "reasoning_trace": state["reasoning_trace"]
-        + [f"SENT: confidence {state['response_confidence']:.2f} above threshold"],
+        + [f"SENT: confidence {state['response_confidence']:.2f} at or above threshold"],
     }
 
 
@@ -62,19 +64,31 @@ def flag_node(state: TicketState) -> dict:
     }
 
 
-def build_agent_graph() -> StateGraph:
-    """Construct and compile the agent graph."""
+def build_agent_graph(
+    confidence_threshold: float = CONFIDENCE_THRESHOLD,
+    use_kb: bool = True,
+    use_priority_gate: bool = True,
+):
+    """
+    Construct and compile the agent graph.
+
+    The flags exist for the ablation study — the defaults are the full agent:
+      use_kb=False            → skip retrieve_from_kb, draft with no context
+      use_priority_gate=False → never escalate, even critical tickets
+    """
 
     graph = StateGraph(TicketState)
 
     # Add tool nodes
     graph.add_node("classify_intent", classify_intent)
     graph.add_node("score_priority", score_priority)
-    graph.add_node("retrieve_from_kb", retrieve_from_kb)
+    if use_kb:
+        graph.add_node("retrieve_from_kb", retrieve_from_kb)
     graph.add_node("draft_response", draft_response)
 
     # Add terminal nodes
-    graph.add_node("escalate", escalate_node)
+    if use_priority_gate:
+        graph.add_node("escalate", escalate_node)
     graph.add_node("send", send_node)
     graph.add_node("flag_for_review", flag_node)
 
@@ -82,25 +96,37 @@ def build_agent_graph() -> StateGraph:
     graph.set_entry_point("classify_intent")
     graph.add_edge("classify_intent", "score_priority")
 
-    # Decision gate 1: priority check
-    graph.add_conditional_edges(
-        "score_priority",
-        route_after_priority,
-        {"escalate": "escalate", "retrieve": "retrieve_from_kb"},
-    )
+    after_priority = "retrieve_from_kb" if use_kb else "draft_response"
 
-    graph.add_edge("retrieve_from_kb", "draft_response")
+    # Decision gate 1: priority check
+    if use_priority_gate:
+        graph.add_conditional_edges(
+            "score_priority",
+            route_after_priority,
+            {"escalate": "escalate", "retrieve": after_priority},
+        )
+        graph.add_edge("escalate", END)
+    else:
+        graph.add_edge("score_priority", after_priority)
+
+    if use_kb:
+        graph.add_edge("retrieve_from_kb", "draft_response")
 
     # Decision gate 2: confidence check
     graph.add_conditional_edges(
         "draft_response",
-        route_after_draft,
+        partial(route_after_draft, threshold=confidence_threshold),
         {"send": "send", "flag_for_review": "flag_for_review"},
     )
 
     # Terminal edges
-    graph.add_edge("escalate", END)
     graph.add_edge("send", END)
     graph.add_edge("flag_for_review", END)
 
     return graph.compile()
+
+
+def run_agent(ticket_text: str, ticket_id: str = "", agent=None) -> TicketState:
+    """Run one ticket through the agent (the full graph unless one is given)."""
+    agent = agent or build_agent_graph()
+    return agent.invoke(new_ticket_state(ticket_text, ticket_id))

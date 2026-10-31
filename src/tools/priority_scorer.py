@@ -47,11 +47,13 @@ def score_priority(state: TicketState) -> dict:
         f'Ticket: "{ticket_text}"'
     )
 
+    sentiment_trace = []
     try:
         result = structured_llm.invoke(prompt)
         sentiment_score = result.sentiment_score
-    except Exception:
+    except Exception as e:
         sentiment_score = 0.0
+        sentiment_trace = [f"Sentiment scoring failed ({type(e).__name__}) — assuming neutral 0.00"]
 
     keyword_hit = has_escalation_keyword(ticket_text)
 
@@ -71,5 +73,6 @@ def score_priority(state: TicketState) -> dict:
         "sentiment_score": sentiment_score,
         "should_escalate": should_escalate,
         "reasoning_trace": state.get("reasoning_trace", [])
+        + sentiment_trace
         + [f"Priority: {priority} (sentiment: {sentiment_score:.2f})"],
     }

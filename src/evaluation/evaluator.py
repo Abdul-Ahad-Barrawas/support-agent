@@ -12,34 +12,166 @@ deliverable for the evaluation. Each row should have:
 | "I was charged twice..." | billing | high | send | "We apologize for..." |
 
 Aim for 50-100 rows covering all intent types and priority levels.
+
+Run from the repo root:
+    python -m src.evaluation.evaluator              # full agent only
+    python -m src.evaluation.evaluator --ablation   # all 4 variants
 """
 
-# TODO: Implement these functions
-#
-# def load_golden_set(path: str) -> pd.DataFrame:
-#     - Load CSV
-#     - Validate columns exist
-#
-# def run_evaluation(agent, golden_set: pd.DataFrame) -> dict:
-#     - For each row, run agent on ticket_text
-#     - Compare predicted vs expected: intent, priority, action
-#     - Calculate:
-#         - Intent accuracy (exact match)
-#         - Priority accuracy (exact match)
-#         - Action accuracy (send/escalate/flag)
-#         - Response quality (LLM-as-judge or ROUGE score)
-#     - Return metrics dict
-#
-# def run_ablation(agent_variants: dict, golden_set) -> pd.DataFrame:
-#     """
-#     Run multiple agent configurations and compare.
-#
-#     Suggested ablations:
-#       1. full_agent        — all 4 tools
-#       2. no_kb             — skip KB retrieval, draft from scratch
-#       3. no_priority       — skip priority scoring, never escalate
-#       4. single_shot       — one LLM call, no tools, just prompt
-#
-#     Returns a DataFrame comparing metrics across variants.
-#     This table is your CV differentiator.
-#     """
+import re
+from typing import IO
+
+import pandas as pd
+from sklearn.metrics import f1_score
+
+from config.settings import CONFIDENCE_THRESHOLD, GOLDEN_SET_PATH
+from src.agent.state import new_ticket_state
+
+REQUIRED_COLUMNS = [
+    "ticket_text",
+    "expected_intent",
+    "expected_priority",
+    "expected_action",
+    "reference_response",
+]
+
+
+def load_golden_set(path: str | IO = GOLDEN_SET_PATH) -> pd.DataFrame:
+    """Load the golden set CSV (path or uploaded file), failing loudly if a column is missing."""
+    golden_set = pd.read_csv(path)
+
+    missing = [col for col in REQUIRED_COLUMNS if col not in golden_set.columns]
+    if missing:
+        raise ValueError(f"Golden set is missing columns: {missing}")
+    if golden_set.empty:
+        raise ValueError("Golden set has no rows")
+
+    return golden_set
+
+
+def rouge_l_f1(candidate: str, reference: str) -> float:
+    """ROUGE-L F1: longest common subsequence of words, as an F-score."""
+    cand = re.findall(r"\w+", candidate.lower())
+    ref = re.findall(r"\w+", reference.lower())
+    if not cand or not ref:
+        return 0.0
+
+    # Classic LCS dynamic programme, one row at a time
+    prev = [0] * (len(ref) + 1)
+    for c in cand:
+        curr = [0]
+        for j, r in enumerate(ref, 1):
+            curr.append(prev[j - 1] + 1 if c == r else max(prev[j], curr[j - 1]))
+        prev = curr
+    lcs = prev[-1]
+
+    if lcs == 0:
+        return 0.0
+    precision, recall = lcs / len(cand), lcs / len(ref)
+    return 2 * precision * recall / (precision + recall)
+
+
+def is_degraded(result: dict) -> bool:
+    """
+    True if any tool fell back to a default (rate limit, malformed LLM output…).
+    Tools catch their own errors, so without this a flaky API would just look
+    like a model that answers wrong.
+    """
+    return any("failed" in step for step in result.get("reasoning_trace", []))
+
+
+def predict(agent, golden_set: pd.DataFrame) -> pd.DataFrame:
+    """Run the agent on every golden ticket; one row of predictions per ticket."""
+    rows = []
+    for i, row in golden_set.iterrows():
+        try:
+            result = agent.invoke(new_ticket_state(row["ticket_text"], ticket_id=f"golden-{i}"))
+            rows.append({
+                "predicted_intent": result.get("intent"),
+                "predicted_priority": result.get("priority"),
+                "predicted_action": result.get("final_action"),
+                "drafted_response": result.get("drafted_response", ""),
+                "error": None,
+                "degraded": is_degraded(result),
+            })
+        except Exception as e:
+            # Errored rows stay in the table and score as wrong — never dropped
+            rows.append({
+                "predicted_intent": None,
+                "predicted_priority": None,
+                "predicted_action": None,
+                "drafted_response": "",
+                "error": f"{type(e).__name__}: {e}",
+                "degraded": True,
+            })
+
+    return pd.concat([golden_set.reset_index(drop=True), pd.DataFrame(rows)], axis=1)
+
+
+def score_predictions(predictions: pd.DataFrame) -> dict:
+    """Compute the metrics for one variant from predict()'s output."""
+    def accuracy(field):
+        return float((predictions[f"predicted_{field}"] == predictions[f"expected_{field}"]).mean())
+
+    # Escalated tickets have no reference reply ("N/A"), so only score the rest
+    answerable = predictions[predictions["expected_action"] != "escalate"]
+    quality = [
+        rouge_l_f1(str(draft or ""), str(ref))
+        for draft, ref in zip(answerable["drafted_response"], answerable["reference_response"])
+    ]
+
+    return {
+        "intent_accuracy": accuracy("intent"),
+        "intent_macro_f1": float(f1_score(
+            predictions["expected_intent"],
+            predictions["predicted_intent"].fillna("error"),
+            average="macro",
+            zero_division=0,
+        )),
+        "priority_accuracy": accuracy("priority"),
+        "action_accuracy": accuracy("action"),
+        "response_quality": float(sum(quality) / len(quality)) if quality else 0.0,
+        "n_tickets": len(predictions),
+        "n_errors": int(predictions["error"].notna().sum()),
+        "n_degraded": int(predictions["degraded"].sum()),
+    }
+
+
+def run_evaluation(agent, golden_set: pd.DataFrame) -> dict:
+    """Run the agent on the golden set and return its metrics."""
+    return score_predictions(predict(agent, golden_set))
+
+
+def default_variants(confidence_threshold: float = CONFIDENCE_THRESHOLD) -> dict:
+    """The 4 agent variants from the README's ablation table."""
+    from src.agent.graph import build_agent_graph
+    from src.agent.single_shot import SingleShotAgent
+
+    return {
+        "Full agent": build_agent_graph(confidence_threshold),
+        "No KB retrieval": build_agent_graph(confidence_threshold, use_kb=False),
+        "No priority gate": build_agent_graph(confidence_threshold, use_priority_gate=False),
+        "Single-shot LLM": SingleShotAgent(confidence_threshold),
+    }
+
+
+def run_ablation(agent_variants: dict, golden_set: pd.DataFrame) -> pd.DataFrame:
+    """Evaluate every variant on the same golden set; one row per variant."""
+    results = {name: run_evaluation(agent, golden_set) for name, agent in agent_variants.items()}
+    return pd.DataFrame.from_dict(results, orient="index").rename_axis("variant")
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Evaluate the agent on the golden set")
+    parser.add_argument("--ablation", action="store_true", help="run all 4 variants")
+    parser.add_argument("--golden-set", default=GOLDEN_SET_PATH)
+    args = parser.parse_args()
+
+    golden = load_golden_set(args.golden_set)
+    variants = default_variants()
+    if not args.ablation:
+        variants = {"Full agent": variants["Full agent"]}
+
+    print(run_ablation(variants, golden).round(3).to_string())

@@ -10,6 +10,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 # Agent
+COMPANY_NAME = os.getenv("COMPANY_NAME", "Acme Cloud")
 CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.7"))
 
 # Paths

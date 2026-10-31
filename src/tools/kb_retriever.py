@@ -6,32 +6,43 @@ Owner: Strong technical member (retrieval logic)
         + Non-technical member (KB content curation)
 """
 
+from config.settings import CHROMA_PERSIST_DIR, KNOWLEDGE_BASE_DIR
 from src.agent.state import TicketState
+from src.knowledge.vector_store import KnowledgeStore
+
+TOP_K = 3
+
+_store = None
+
+
+def get_store() -> KnowledgeStore:
+    """Open the store once per process, indexing the KB on first ever run."""
+    global _store
+    if _store is None:
+        _store = KnowledgeStore(CHROMA_PERSIST_DIR)
+        if _store.collection.count() == 0:
+            _store.load_from_directory(KNOWLEDGE_BASE_DIR)
+    return _store
 
 
 def retrieve_from_kb(state: TicketState) -> dict:
-    """
-    Retrieve relevant documents from ChromaDB based on ticket + intent.
-
-    TODO: Implement this tool
-    - Build query from ticket_text + intent
-    - Query ChromaDB collection
-    - Return top-k documents with similarity scores
-    - k=3 is a good default, tune during ablation
-
-    Uses: src/knowledge/vector_store.py for the ChromaDB wrapper
-    """
+    """Retrieve the top-k KB chunks most similar to the ticket + its intent."""
     ticket_text = state["ticket_text"]
     intent = state["intent"]
 
-    # ---- PLACEHOLDER — replace with vector search ----
-    retrieved_docs = []
-    retrieval_scores = []
-    # ---------------------------------------------------
+    # The intent label nudges the embedding toward the right KB section
+    query = f"{intent.replace('_', ' ')}: {ticket_text}" if intent else ticket_text
+
+    try:
+        results = get_store().search(query, top_k=TOP_K)
+        trace = f"Retrieved {len(results)} docs from KB"
+    except Exception as e:
+        # Drafting still runs; with no context its confidence drops → flag_for_review
+        results = []
+        trace = f"KB retrieval failed ({type(e).__name__}: {e}) — drafting without context"
 
     return {
-        "retrieved_docs": retrieved_docs,
-        "retrieval_scores": retrieval_scores,
-        "reasoning_trace": state.get("reasoning_trace", [])
-        + [f"Retrieved {len(retrieved_docs)} docs from KB"],
+        "retrieved_docs": [r["text"] for r in results],
+        "retrieval_scores": [r["score"] for r in results],
+        "reasoning_trace": state.get("reasoning_trace", []) + [trace],
     }
