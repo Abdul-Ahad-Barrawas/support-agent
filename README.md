@@ -34,7 +34,7 @@ The whole pipeline is wired together as a LangGraph state machine in `build_agen
 |-------------------|-----------------------------|------------------------------------------|
 | Agent framework   | LangGraph                   | State machine with conditional routing    |
 | LLM orchestration | LangChain                   | Prompts, tool definitions, output parsing |
-| LLM provider      | Groq (free) / OpenAI (paid) | Groq gives free Llama 3.1 70B inference   |
+| LLM provider      | Groq / OpenRouter / OpenAI  | Set `LLM_PROVIDER` in `.env` ([`src/llm.py`](src/llm.py)); Groq's free tier is too small for the full ablation |
 | Vector store      | ChromaDB                    | Local, no infra, persistent               |
 | Embeddings        | sentence-transformers       | Free local embeddings (MiniLM)            |
 | UI                | Streamlit                   | Fast prototyping, easy for non-coders     |
@@ -90,9 +90,10 @@ source venv/bin/activate   # Windows: venv\Scripts\activate
 # 3. Install dependencies
 pip install -r requirements.txt
 
-# 4. Configure environment
+# 4. Configure environment — either export the key in your shell…
+export OPENROUTER_API_KEY=...          # from https://openrouter.ai/keys
+# …or put it in .env (shell variables take precedence; .env is gitignored)
 cp .env.example .env
-# Edit .env → add your Groq API key (free at console.groq.com)
 
 # 5. Run the app (indexes data/knowledge_base/ on first run)
 streamlit run app/streamlit_app.py

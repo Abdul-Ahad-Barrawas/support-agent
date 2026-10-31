@@ -7,13 +7,13 @@ Owner: Strong technical member
 
 from typing import Literal
 
-from langchain_groq import ChatGroq
 from pydantic import BaseModel, Field
 
-from config.settings import INTENT_LABELS, LLM_MODEL
+from config.settings import INTENT_LABELS
 from src.agent.state import TicketState
+from src.llm import get_llm
 
-llm = ChatGroq(model=LLM_MODEL, temperature=0)
+llm = get_llm(temperature=0)
 
 
 class IntentResult(BaseModel):

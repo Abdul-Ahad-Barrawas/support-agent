@@ -7,19 +7,18 @@ so the evaluator can run it like any other agent variant.
 
 from typing import Literal
 
-from langchain_groq import ChatGroq
 from pydantic import BaseModel, Field
 
 from config.settings import (
     COMPANY_NAME,
     CONFIDENCE_THRESHOLD,
     INTENT_LABELS,
-    LLM_MODEL,
     PRIORITY_LEVELS,
 )
 from src.agent.state import TicketState
+from src.llm import get_llm
 
-llm = ChatGroq(model=LLM_MODEL, temperature=0)
+llm = get_llm(temperature=0)
 
 
 class SingleShotResult(BaseModel):

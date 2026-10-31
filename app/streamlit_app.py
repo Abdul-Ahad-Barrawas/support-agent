@@ -15,9 +15,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pandas as pd
 import streamlit as st
 
-from config.settings import CONFIDENCE_THRESHOLD, GOLDEN_SET_PATH, LLM_MODEL, LLM_PROVIDER
+from config.settings import CONFIDENCE_THRESHOLD, GOLDEN_SET_PATH, LLM_PROVIDER
 from src.agent.graph import build_agent_graph, run_agent
 from src.evaluation.evaluator import default_variants, load_golden_set, run_ablation, run_evaluation
+from src.llm import model_name
 
 ACTION_STYLES = {
     "send": (st.success, "✅ SEND — response is confident enough to go out"),
@@ -40,7 +41,7 @@ threshold = st.sidebar.slider(
     "Confidence threshold", 0.0, 1.0, CONFIDENCE_THRESHOLD, 0.05,
     help="Drafts below this confidence are flagged for human review",
 )
-st.sidebar.caption(f"LLM: `{LLM_PROVIDER}` / `{LLM_MODEL}` (set in .env)")
+st.sidebar.caption(f"LLM: `{LLM_PROVIDER}` / `{model_name()}` (set in .env)")
 
 # --- Sidebar: evaluation dashboard ---
 st.sidebar.header("Evaluation")

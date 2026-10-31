@@ -1,5 +1,11 @@
+import os
 import re
 import zlib
+
+# The tools build their LLM client at import time, which needs a key present.
+# Tests never call the API — fill in fakes only where no real key is set.
+for _name in ("OPENROUTER_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY"):
+    os.environ.setdefault(_name, "test-key-not-real")
 
 import pytest
 

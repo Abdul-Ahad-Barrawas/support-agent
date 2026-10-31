@@ -6,13 +6,13 @@ Owner: Strong technical member (generation logic)
         + Non-technical member (prompt engineering & ablation)
 """
 
-from langchain_groq import ChatGroq
 from pydantic import BaseModel, Field
 
-from config.settings import COMPANY_NAME, LLM_MODEL
+from config.settings import COMPANY_NAME
 from src.agent.state import TicketState
+from src.llm import get_llm
 
-llm = ChatGroq(model=LLM_MODEL, temperature=0.3)
+llm = get_llm(temperature=0.3)
 
 
 class DraftResult(BaseModel):

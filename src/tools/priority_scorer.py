@@ -7,13 +7,12 @@ Owner: Strong technical member
 
 import re
 
-from langchain_groq import ChatGroq
 from pydantic import BaseModel, Field
 
-from config.settings import LLM_MODEL
 from src.agent.state import TicketState
+from src.llm import get_llm
 
-llm = ChatGroq(model=LLM_MODEL, temperature=0)
+llm = get_llm(temperature=0)
 
 
 class SentimentResult(BaseModel):

@@ -1,13 +1,14 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+# Real environment variables (e.g. exported in your shell) win over .env
+load_dotenv(override=False)
 
-# LLM
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq")
-LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-oss-120b")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+# LLM — API keys are deliberately NOT read here; src/llm.py reads them from
+# os.environ at the moment a client is built, so they never sit in settings
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openrouter")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-oss-120b")
+LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-oss-120b")  # used by groq / openai
 
 # Agent
 COMPANY_NAME = os.getenv("COMPANY_NAME", "Acme Cloud")
