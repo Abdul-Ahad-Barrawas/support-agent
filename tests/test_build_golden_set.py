@@ -7,6 +7,7 @@ from src.evaluation.build_golden_set import (
     label_priority,
     load_raw_tickets,
     merge_with_hand_rows,
+    sample_dev_set,
     sample_golden,
     to_golden_rows,
 )
@@ -219,3 +220,22 @@ def test_merge_keeps_hand_corrected_kaggle_row():
 
     assert list(merged["ticket_text"]) == ["kaggle ticket", "other"]
     assert merged.iloc[0]["expected_intent"] == "complaint"
+
+
+# --- sample_dev_set ---
+
+def test_dev_set_never_overlaps_golden():
+    pool = labeled_pool()
+    golden = sample_golden(pool, n_per_intent=5, n_critical=4, seed=42)
+
+    dev = sample_dev_set(pool, golden, n_per_intent=5, n_critical=4)
+
+    assert not set(dev["ticket_text"]) & set(golden["ticket_text"])
+    assert len(dev) == len(golden)  # same stratified shape
+
+
+def test_dev_set_is_reproducible():
+    pool = labeled_pool()
+    golden = sample_golden(pool, seed=42)
+
+    assert sample_dev_set(pool, golden).equals(sample_dev_set(pool, golden))

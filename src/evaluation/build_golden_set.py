@@ -26,6 +26,7 @@ from config.settings import GOLDEN_SET_PATH, INTENT_LABELS
 from src.evaluation.evaluator import REQUIRED_COLUMNS
 
 RAW_PATH = "./data/raw/customer-support-tickets/aa_dataset-tickets-multi-lang-5-2-50-version.csv"
+DEV_SET_PATH = "./data/golden_set/dev_qa.csv"
 
 TECHNICAL_QUEUES = {
     "Technical Support", "Product Support", "IT Support", "Service Outages and Maintenance",
@@ -137,6 +138,17 @@ def sample_golden(labeled: pd.DataFrame, n_per_intent: int = 10, n_critical: int
     return pd.concat(picked).drop_duplicates("ticket_text").reset_index(drop=True)
 
 
+def sample_dev_set(labeled: pd.DataFrame, golden: pd.DataFrame, n_per_intent: int = 10,
+                   n_critical: int = 8, seed: int = 7) -> pd.DataFrame:
+    """
+    A tuning set drawn the same way as the golden set but never overlapping it.
+    Prompts and thresholds are tuned on this, so the golden set stays an
+    untouched test set and reported scores aren't inflated by tuning.
+    """
+    unseen = labeled[~labeled["ticket_text"].isin(golden["ticket_text"])]
+    return sample_golden(unseen, n_per_intent, n_critical, seed)
+
+
 def merge_with_hand_rows(existing: pd.DataFrame, generated: pd.DataFrame) -> pd.DataFrame:
     """Keep hand-written rows, replace any previously generated ones."""
     existing = existing.copy()
@@ -155,9 +167,21 @@ if __name__ == "__main__":
     parser.add_argument("--n-per-intent", type=int, default=10)
     parser.add_argument("--n-critical", type=int, default=8)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--raw-path", default=RAW_PATH)
+    parser.add_argument("--dev", action="store_true",
+                        help=f"write a non-overlapping tuning set to {DEV_SET_PATH} instead")
     args = parser.parse_args()
 
-    labeled = to_golden_rows(load_raw_tickets())
+    labeled = to_golden_rows(load_raw_tickets(args.raw_path))
+
+    if args.dev:
+        dev = sample_dev_set(labeled, pd.read_csv(GOLDEN_SET_PATH), args.n_per_intent,
+                             args.n_critical, seed=7 if args.seed == 42 else args.seed)
+        dev.to_csv(DEV_SET_PATH, index=False)
+        print(f"Wrote {len(dev)} dev rows (no overlap with the golden set) to {DEV_SET_PATH}")
+        print(dev["expected_intent"].value_counts().to_string())
+        raise SystemExit
+
     generated = sample_golden(labeled, args.n_per_intent, args.n_critical, args.seed)
     golden = merge_with_hand_rows(pd.read_csv(GOLDEN_SET_PATH), generated)
     golden.to_csv(GOLDEN_SET_PATH, index=False)
