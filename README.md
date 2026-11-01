@@ -78,6 +78,8 @@ support-agent/
 
 ## Setup
 
+New to the project? **[docs/SETUP_LINUX.md](docs/SETUP_LINUX.md)** is a complete step-by-step guide for Linux: getting an OpenRouter API key, installing, running the app and troubleshooting. The full write-up is in [docs/PROJECT_REPORT.md](docs/PROJECT_REPORT.md) (Word version: `docs/Project_Report.docx`). Quick version:
+
 ```bash
 # 1. Clone and enter
 git clone <repo-url>
