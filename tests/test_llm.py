@@ -74,10 +74,10 @@ def test_unknown_provider_rejected():
 def test_structured_output_methods_build_on_openrouter():
     # The exact calls the tools make at import time must work on the OpenAI client too
     from src.tools.intent_classifier import IntentResult
-    from src.tools.priority_scorer import SentimentResult
+    from src.tools.priority_scorer import PriorityResult
     from src.tools.response_drafter import DraftResult
 
     llm = get_llm(provider="openrouter")
     llm.with_structured_output(IntentResult)
-    llm.with_structured_output(SentimentResult, method="json_mode")
+    llm.with_structured_output(PriorityResult, method="json_schema")
     llm.with_structured_output(DraftResult, method="json_schema")

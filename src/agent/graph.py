@@ -20,7 +20,7 @@ from src.tools.intent_classifier import classify_intent
 from src.tools.priority_scorer import score_priority
 from src.tools.kb_retriever import retrieve_from_kb
 from src.tools.response_drafter import draft_response
-from config.settings import CONFIDENCE_THRESHOLD
+from config.settings import CONFIDENCE_THRESHOLD, MIN_RETRIEVAL_SCORE
 
 
 def route_after_priority(state: TicketState) -> str:
@@ -30,11 +30,22 @@ def route_after_priority(state: TicketState) -> str:
     return "retrieve"
 
 
-def route_after_draft(state: TicketState, threshold: float = CONFIDENCE_THRESHOLD) -> str:
-    """Decision gate 2: check confidence before sending."""
-    if state["response_confidence"] >= threshold:
-        return "send"
-    return "flag_for_review"
+def best_retrieval_score(state: TicketState) -> float:
+    return max(state.get("retrieval_scores") or [0.0])
+
+
+def route_after_draft(state: TicketState, threshold: float = CONFIDENCE_THRESHOLD,
+                      min_retrieval_score: float | None = None) -> str:
+    """
+    Decision gate 2: send only a confident draft. When min_retrieval_score is
+    set, the KB must also have held a relevant policy — the model's self-rated
+    confidence alone is not trusted to auto-send.
+    """
+    if state["response_confidence"] < threshold:
+        return "flag_for_review"
+    if min_retrieval_score is not None and best_retrieval_score(state) < min_retrieval_score:
+        return "flag_for_review"
+    return "send"
 
 
 def escalate_node(state: TicketState) -> dict:
@@ -55,12 +66,18 @@ def send_node(state: TicketState) -> dict:
     }
 
 
-def flag_node(state: TicketState) -> dict:
-    """Terminal node — low confidence, needs human review."""
+def flag_node(state: TicketState, threshold: float = CONFIDENCE_THRESHOLD,
+              min_retrieval_score: float | None = None) -> dict:
+    """Terminal node — needs human review; the trace says which check failed."""
+    confidence = state["response_confidence"]
+    if confidence < threshold:
+        reason = f"confidence {confidence:.2f} below threshold {threshold:.2f}"
+    else:
+        reason = (f"confidence {confidence:.2f} OK, but best KB match "
+                  f"{best_retrieval_score(state):.2f} below {min_retrieval_score:.2f}")
     return {
         "final_action": "flag_for_review",
-        "reasoning_trace": state["reasoning_trace"]
-        + [f"FLAGGED: confidence {state['response_confidence']:.2f} below threshold"],
+        "reasoning_trace": state["reasoning_trace"] + [f"FLAGGED: {reason}"],
     }
 
 
@@ -68,14 +85,17 @@ def build_agent_graph(
     confidence_threshold: float = CONFIDENCE_THRESHOLD,
     use_kb: bool = True,
     use_priority_gate: bool = True,
+    min_retrieval_score: float = MIN_RETRIEVAL_SCORE,
 ):
     """
     Construct and compile the agent graph.
 
     The flags exist for the ablation study — the defaults are the full agent:
       use_kb=False            → skip retrieve_from_kb, draft with no context
+                                (the retrieval floor is off: there are no scores)
       use_priority_gate=False → never escalate, even critical tickets
     """
+    floor = min_retrieval_score if use_kb else None
 
     graph = StateGraph(TicketState)
 
@@ -90,7 +110,8 @@ def build_agent_graph(
     if use_priority_gate:
         graph.add_node("escalate", escalate_node)
     graph.add_node("send", send_node)
-    graph.add_node("flag_for_review", flag_node)
+    graph.add_node("flag_for_review", partial(flag_node, threshold=confidence_threshold,
+                                              min_retrieval_score=floor))
 
     # Wire the edges
     graph.set_entry_point("classify_intent")
@@ -115,7 +136,7 @@ def build_agent_graph(
     # Decision gate 2: confidence check
     graph.add_conditional_edges(
         "draft_response",
-        partial(route_after_draft, threshold=confidence_threshold),
+        partial(route_after_draft, threshold=confidence_threshold, min_retrieval_score=floor),
         {"send": "send", "flag_for_review": "flag_for_review"},
     )
 
