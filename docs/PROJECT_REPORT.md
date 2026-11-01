@@ -6,8 +6,8 @@
 | **Repository** | `github.com/Abdul-Ahad-Barrawas/support-agent` (branch `feature/rag-drafter-evaluation`) |
 | **Language / runtime** | Python 3.14 (3.10+ supported) |
 | **Core stack** | LangGraph · LangChain · ChromaDB · sentence-transformers · Streamlit · OpenRouter (`openai/gpt-oss-120b`) |
-| **Codebase size** | ~1,300 lines of application code · 128 automated tests (+19 from the evaluator work on merge) + 10 live end-to-end tests |
-| **Status** | Pushed HEAD `f679988`. Two uncommitted work streams: (a) evaluator concurrency, request deadlines and the live test suite; (b) the improvement round in §8.4. Both need committing and merging before submission |
+| **Codebase size** | ~1,300 lines of application code · 146 automated tests + 10 live end-to-end tests |
+| **Status** | Both work streams committed and merged (`ac70000`); results confirmed by a post-merge ablation and live-test run (§8.4, §8.5) |
 | **Report date** | November 2026 |
 
 ---
@@ -43,7 +43,7 @@ The pipeline is orchestrated as a **LangGraph state machine**, uses **ChromaDB**
 
 The project is evaluated rigorously against a **73-ticket golden test set**: 5 hand-written tickets plus 68 sampled from a public Kaggle dataset using reproducible, rule-based labelling. An **ablation study** compares the full agent against three reduced variants (no retrieval, no priority gate, single LLM call) to measure what each component contributes. The baseline ablation exposed two defects: a priority gate that escalated **none** of the 9 critical tickets, and confusion between intent labels. An **improvement round**, tuned on a separate non-overlapping dev set and measured once on the golden set, fixed both. Critical-ticket escalation went from **0/9 to 9/9**, intent accuracy from **0.726 to 0.767**, priority accuracy from 0.329 to 0.384, and action accuracy from 0.123 to 0.205, all with 0 degraded tickets. The same round **mitigated the prompt-injection finding** from the security review with role separation and a retrieval floor on auto-send, which now holds back 21 confident but ungrounded drafts. The remaining gap is knowledge-base coverage: the KB covers billing only, and expanding it is the next lever.
 
-Quality is backed by **128 automated tests** with the LLM stubbed (plus 19 from the concurrent-evaluator work when merged) and **10 live end-to-end tests** against the real model.
+Quality is backed by **146 automated tests** with the LLM stubbed and **10 live end-to-end tests** against the real model.
 
 ---
 
@@ -519,13 +519,28 @@ Guided by §8.3, four changes were made. Each was checked on the dev set (§6.4)
 
 5. **Reply quality held up** (0.135 → 0.149) despite the stricter prompt, and the full agent's replies still beat single-shot's (0.081).
 
-> **Method note.** Variants, scoring (`score_predictions`) and degraded-detection (`is_degraded`) are the repository's own. The tickets were run through a temporary 16-worker concurrent runner with an overall deadline, because the concurrent evaluator (§5.8) had not yet been merged into this branch. Re-running with `python -m src.evaluation.evaluator --ablation` after the merge should reproduce these numbers within sampling noise.
+> **Method note.** Variants, scoring (`score_predictions`) and degraded-detection (`is_degraded`) are the repository's own. The tickets above were run through a temporary 16-worker concurrent runner with an overall deadline, because the concurrent evaluator (§5.8) had not yet been merged into this branch.
+
+**Confirmation run after merge** (`python -m src.evaluation.evaluator --ablation`, merge commit `ac70000`, 0 degraded rows):
+
+| Variant | Intent acc. | Intent F1 | Priority acc. | Action acc. | Response quality | n_degraded |
+|---|---|---|---|---|---|---|
+| **Full agent** | **0.767** | 0.753 | 0.411 | 0.247 | 0.154 | 0 |
+| No KB retrieval | 0.767 | 0.760 | 0.425 | 0.192 | 0.141 | 0 |
+| No priority gate | 0.753 | 0.749 | 0.425 | 0.082 | 0.160 | 0 |
+| Single-shot LLM | 0.740 | 0.739 | 0.479 | 0.767 | 0.082 | 0 |
+
+A separate run of the full agent alone gave intent 0.740, priority 0.425 and action 0.205, with **9/9 critical tickets escalated and 2 false escalations** (a service-interruption report and a medical-data security concern).
+
+What the confirmation run does and does not reproduce:
+- **Reproduced:** escalation 9/9, the gate effect (action 0.247 → 0.082 without it, a 12-ticket gap), the intent gain, and 0 degraded rows.
+- **Not reproduced: No-KB beating the full agent on action.** Here No-KB scored 0.192, *below* the full agent's 0.247. In the temporary run it scored 0.315. That 9-ticket swing on one variant shows that action accuracy is dominated by run-to-run variation in which borderline drafts the model rates ≥ 0.7. **Finding 4's mechanism (the floor holds back ungrounded drafts) still stands, but the ordering of the full and No-KB rows on action is not a robust result.**
 
 **Bottom line:** the improvement round fixed the two defects the baseline exposed: escalation recall (0/9 → 9/9) and intent confusion (+3 tickets). It also made auto-sending safer. The remaining gap in action accuracy is knowledge-base coverage. **Expanding the KB is now the single biggest lever**, and it is what will let the full agent send the ~21 confident drafts it currently, correctly, holds back.
 
 ### 8.5 Live end-to-end test results (OpenRouter)
 
-*Run before the improvement round (§8.4). The live suite should be re-run against the improved agent.*
+*Re-run against the improved agent after the merge: **9 passed, 1 xpassed, ≈ 57 s**. The prompt-injection probe now passes because the retrieval floor gates sending independently of self-rated confidence, so its `xfail` marker was removed and it is a strict regression test. The results below are from the first run.*
 
 | Check | Result |
 |---|---|
@@ -548,7 +563,7 @@ Guided by §8.3, four changes were made. Each was checked on the dev set (§6.4)
 
 ### 9.1 Automated test suite (≈ 3 s, no network)
 
-The LLM is stubbed with fakes; ChromaDB runs for real in temporary directories with a deterministic embedder. The improvement-round branch has **128 tests**; the concurrent-evaluator and request-deadline work adds **19 more** when the two branches are merged.
+The LLM is stubbed with fakes; ChromaDB runs for real in temporary directories with a deterministic embedder. After merging both work streams the suite has **146 tests** (plus 10 opt-in live tests).
 
 | Test file | Tests cover |
 |---|---|
@@ -614,7 +629,7 @@ The LLM is stubbed with fakes; ChromaDB runs for real in temporary directories w
 | Finding | Severity | Status |
 |---|---|---|
 | **Markdown injection in the UI.** A ticket could steer the LLM into emitting an image link (tracking pixel) that `st.markdown` would load in the operator's browser. | Medium | **Fixed.** Replies and trace lines render as plain text; a test feeds an injected image link and asserts it is not rendered. |
-| **Prompt injection past the send gate.** Ticket text shared a prompt with the instructions, and the model's self-rated confidence was the only gate before auto-send. | Medium | **Mitigated** in the improvement round (§8.4) with two independent layers. (1) **Role separation:** instructions live in the system message, and the ticket sits in a delimited user message marked as data (tested: injection text never reaches the system message). (2) **Retrieval floor:** auto-send now also requires a real KB match ≥ 0.3, so an injected *"rate your confidence 1.0"* cannot by itself cause a send. On the golden set the floor stopped 21 confident but ungrounded drafts. *Residual risk:* an injection on a ticket that also matches real policy could still influence the reply's wording; the live injection probe should be re-run against the improved agent and made a strict test. |
+| **Prompt injection past the send gate.** Ticket text shared a prompt with the instructions, and the model's self-rated confidence was the only gate before auto-send. | Medium | **Mitigated** in the improvement round (§8.4) with two independent layers. (1) **Role separation:** instructions live in the system message, and the ticket sits in a delimited user message marked as data (tested: injection text never reaches the system message). (2) **Retrieval floor:** auto-send now also requires a real KB match ≥ 0.3, so an injected *"rate your confidence 1.0"* cannot by itself cause a send. On the golden set the floor stopped 21 confident but ungrounded drafts. *Residual risk:* an injection on a ticket that also matches real policy could still influence the reply's wording; the live injection probe now passes against the improved agent and is a strict regression test. |
 
 ### 11.3 Data privacy
 
@@ -764,8 +779,9 @@ support-agent/
 | `8294b38` | KB retrieval, response drafter, evaluation harness, Kaggle golden set, UI |
 | `a7d2633` | Render LLM output in the UI as plain text (security fix) |
 | `f679988` | OpenRouter as the default LLM provider |
-| *(uncommitted)* | Concurrent evaluator, per-request deadlines, thread-safe store init, live test suite |
-| *(uncommitted, branch `worktree-project-report`)* | Improvement round: severity-based priority scoring, intent definitions, drafter role separation, retrieval floor, dev set, this report |
+| `42faf04` | Concurrent evaluator, per-request deadlines, thread-safe store init, live test suite |
+| `031080c` | Improvement round: severity-based priority scoring, intent definitions, drafter role separation, retrieval floor, dev set, this report |
+| `ac70000` | Merge of the two work streams; confirmation ablation (§8.4) |
 
 ---
 
