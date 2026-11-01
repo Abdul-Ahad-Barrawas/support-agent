@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 data/chroma_db/
+data/raw/
 .ipynb_checkpoints/
 *.egg-info/
 dist/

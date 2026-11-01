@@ -32,3 +32,22 @@ class TicketState(TypedDict):
     # --- Final output ---
     final_action: Literal["send", "escalate", "flag_for_review"]
     reasoning_trace: list[str]           # Step-by-step log for transparency
+
+
+def new_ticket_state(ticket_text: str, ticket_id: str = "") -> TicketState:
+    """Starting state for one ticket — every field set so no node hits a KeyError."""
+    return TicketState(
+        ticket_text=ticket_text,
+        ticket_id=ticket_id,
+        intent="",
+        intent_confidence=0.0,
+        priority="",
+        sentiment_score=0.0,
+        should_escalate=False,
+        retrieved_docs=[],
+        retrieval_scores=[],
+        drafted_response="",
+        response_confidence=0.0,
+        final_action="flag_for_review",
+        reasoning_trace=[],
+    )
