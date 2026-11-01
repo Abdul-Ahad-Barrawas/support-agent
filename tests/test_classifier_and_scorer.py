@@ -88,6 +88,10 @@ def test_legal_threat_overrides_model_judgment(monkeypatch):
     ("I will sue you", True),
     ("Please pursue the invoice issue", False),  # whole words only
     ("Is this legal in the EU?", False),          # 'legal' alone is not a threat
+    ("Hi, this is Sue from accounting", False),   # a name, not a threat
+    ("I need to update the power of attorney document", False),
+    ("Our attorneys are reviewing this", True),
+    ("We are suing your company", True),
 ])
 def test_legal_threat_detection(text, expected):
     assert has_legal_threat(text) is expected
@@ -112,6 +116,16 @@ def test_scorer_failure_defaults_to_medium_and_is_visible(monkeypatch):
     assert (out["priority"], out["sentiment_score"], out["should_escalate"]) == ("medium", 0.0, False)
     assert "failed" in out["reasoning_trace"][0]
     assert out["reasoning_trace"][-1] == "Priority: medium (sentiment: 0.00)"
+
+
+def test_scorer_failure_still_escalates_incident(monkeypatch):
+    # A rate-limited scorer must not let a breach drop to medium and get auto-sent
+    monkeypatch.setattr(priority_scorer, "structured_llm", FakeLLM(error=RuntimeError("429")))
+
+    out = score_priority(new_ticket_state("Our account was hacked and customer data leaked"))
+
+    assert (out["priority"], out["should_escalate"]) == ("critical", True)
+    assert "failed" in out["reasoning_trace"][0]
 
 
 def test_scorer_failure_still_escalates_legal_threat(monkeypatch):

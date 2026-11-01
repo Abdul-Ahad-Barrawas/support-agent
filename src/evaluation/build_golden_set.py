@@ -18,6 +18,7 @@ Run from the repo root:
     python -m src.evaluation.build_golden_set
 """
 
+import os
 import re
 
 import pandas as pd
@@ -181,6 +182,11 @@ if __name__ == "__main__":
         print(f"Wrote {len(dev)} dev rows (no overlap with the golden set) to {DEV_SET_PATH}")
         print(dev["expected_intent"].value_counts().to_string())
         raise SystemExit
+
+    # Prompts are tuned on the dev set, so its tickets must never enter the test set
+    if os.path.exists(DEV_SET_PATH):
+        dev_texts = set(pd.read_csv(DEV_SET_PATH)["ticket_text"])
+        labeled = labeled[~labeled["ticket_text"].isin(dev_texts)]
 
     generated = sample_golden(labeled, args.n_per_intent, args.n_critical, args.seed)
     golden = merge_with_hand_rows(pd.read_csv(GOLDEN_SET_PATH), generated)

@@ -41,14 +41,30 @@ SEVERITY_DEFINITIONS = {
     "low": "a question, how-to, feature suggestion or general feedback; nothing is broken",
 }
 
-# Legal threats always go to a human, whatever the model judged
-LEGAL_THREAT_PATTERN = re.compile(r"\b(lawsuit|lawyer|attorney|legal action|sue|suing)\b")
+# Legal threats always go to a human, whatever the model judged. Phrases, not
+# bare words: "Sue from accounting" or "power of attorney" is not a threat
+LEGAL_THREAT_PATTERN = re.compile(
+    r"\b(lawsuit|legal action|suing|sue (you|your|them|the company)|take you to court|"
+    r"(my|our) (lawyer|lawyers|attorney|attorneys|solicitor))\b"
+)
+
+# Only used when the LLM call fails: a cheap safety net so an incident ticket
+# can't drop to medium and be auto-sent just because the scorer was rate limited
+FALLBACK_CRITICAL_PATTERN = re.compile(
+    r"\b(breach\w*|hacked|unauthori[sz]ed access|ransomware|data loss|data leak\w*|"
+    r"outage|system down|security incident|fraud\w*)\b"
+)
 
 FALLBACK_SEVERITY = "medium"
 
 
 def has_legal_threat(ticket_text: str) -> bool:
     return bool(LEGAL_THREAT_PATTERN.search(ticket_text.lower()))
+
+
+def fallback_severity(ticket_text: str) -> str:
+    """Severity when the LLM is unavailable: critical on incident wording, else medium."""
+    return "critical" if FALLBACK_CRITICAL_PATTERN.search(ticket_text.lower()) else FALLBACK_SEVERITY
 
 
 def score_priority(state: TicketState) -> dict:
@@ -72,8 +88,9 @@ def score_priority(state: TicketState) -> dict:
         result = structured_llm.invoke(prompt)
         priority, sentiment_score = result.severity, result.sentiment_score
     except Exception as e:
-        # Medium keeps the ticket out of the low-priority pile without escalating it
-        priority, sentiment_score = FALLBACK_SEVERITY, 0.0
+        # Medium keeps ordinary tickets out of the low-priority pile without
+        # escalating them; incident wording still escalates
+        priority, sentiment_score = fallback_severity(ticket_text), 0.0
         trace.append(f"Priority scoring failed ({type(e).__name__}) — defaulting to {priority}")
 
     if has_legal_threat(ticket_text) and priority != "critical":

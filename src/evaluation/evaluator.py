@@ -156,6 +156,9 @@ def score_predictions(predictions: pd.DataFrame) -> dict:
         "intent_macro_f1": float(f1_score(
             predictions["expected_intent"],
             predictions["predicted_intent"].fillna("error"),
+            # Average over the real classes only: errored rows still count as
+            # wrong, but "error" must not become a 0-F1 class of its own
+            labels=sorted(predictions["expected_intent"].unique()),
             average="macro",
             zero_division=0,
         )),

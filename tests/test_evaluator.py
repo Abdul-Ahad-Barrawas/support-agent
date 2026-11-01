@@ -175,6 +175,14 @@ def test_tool_fallbacks_are_counted_as_degraded():
     assert metrics["n_errors"] == 0
 
 
+def test_errors_do_not_add_a_phantom_f1_class():
+    agent = LookupAgent({**PERFECT.answers, "charged twice": RuntimeError("boom")})
+
+    # billing F1 = 0 (missed), complaint = 1, feature_request = 1 → 2/3.
+    # Counting "error" as a fourth 0-F1 class would give 0.5
+    assert run_evaluation(agent, GOLDEN)["intent_macro_f1"] == pytest.approx(2 / 3)
+
+
 def test_crashed_rows_are_also_degraded():
     agent = LookupAgent({**PERFECT.answers, "charged twice": RuntimeError("boom")})
 

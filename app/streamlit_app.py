@@ -50,9 +50,10 @@ uploaded = st.sidebar.file_uploader("Golden set CSV (defaults to the repo's)", t
 try:
     golden_set = load_golden_set(uploaded or GOLDEN_SET_PATH)
     st.sidebar.caption(f"{len(golden_set)} golden tickets loaded")
-except ValueError as e:
+except (ValueError, OSError) as e:
+    # A missing or bad golden set disables evaluation, not the triage UI
     golden_set = None
-    st.sidebar.error(str(e))
+    st.sidebar.error(f"Golden set unavailable: {e}")
 
 if golden_set is not None:
     if st.sidebar.button("Run evaluation"):
