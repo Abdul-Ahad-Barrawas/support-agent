@@ -103,6 +103,7 @@ streamlit run app/streamlit_app.py
 
 ```bash
 pytest                                        # unit + integration tests (no API calls)
+RUN_LIVE_TESTS=1 pytest tests/test_live.py -v # end-to-end on the real LLM + KB (costs a few tokens)
 python -m src.knowledge.vector_store          # rebuild the KB index after editing data/knowledge_base/
 python -m src.evaluation.build_golden_set     # regenerate the Kaggle rows of the golden set (needs data/raw/)
 python -m src.evaluation.evaluator            # score the full agent on the golden set
@@ -142,14 +143,21 @@ Gantt chart mapping every task in this README to a day and an owner: https://cla
 Spot-check these before reporting results — `complaint` is the weakest label, as the dataset's tone is mostly neutral B2B. Hand-corrected rows should be changed to `source=hand` so a regeneration keeps them.
 
 ### Ablation Table
-Run 4 agent variants against the golden set and compare:
+Run 4 agent variants against the golden set and compare (`python -m src.evaluation.evaluator --ablation`, ~4 min).
 
-| Variant          | Intent Acc | Priority Acc | Action Acc | Response Quality |
+Baseline — 73 golden tickets, `openai/gpt-oss-120b` via OpenRouter, confidence threshold 0.7, 0 degraded rows:
+
+| Variant          | Intent Acc | Priority Acc | Action Acc | Response Quality (ROUGE-L) |
 |------------------|-----------|-------------|-----------|-----------------|
-| Full agent       | —         | —           | —         | —               |
-| No KB retrieval  | —         | —           | —         | —               |
-| No priority gate | —         | —           | —         | —               |
-| Single-shot LLM  | —         | —           | —         | —               |
+| Full agent       | 0.726     | 0.329       | 0.123     | 0.135           |
+| No KB retrieval  | 0.699     | 0.342       | 0.096     | 0.106           |
+| No priority gate | 0.712     | 0.356       | 0.096     | 0.136           |
+| Single-shot LLM  | 0.712     | 0.452       | 0.836     | 0.095           |
+
+What it shows so far:
+- **KB retrieval helps** — removing it lowers intent, action and response quality.
+- **Low action accuracy is a KB-coverage problem, not a routing bug**: the KB only covers billing, so for every other intent the best match scores ~0.1–0.17, the drafter (correctly) rates its confidence low, and 56 of 64 "send" tickets are flagged for review. Single-shot "wins" on action by sending ungrounded answers — exactly what the agent is designed to avoid.
+- **No critical ticket is escalated**: the priority scorer requires *anger* (sentiment < −0.7) plus a keyword, but the dataset's breach/outage reports are written calmly — severity and sentiment don't coincide.
 
 This table proves each component adds value — that's what hiring managers look for.
 

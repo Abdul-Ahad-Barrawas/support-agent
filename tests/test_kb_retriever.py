@@ -82,3 +82,30 @@ def test_get_store_indexes_kb_on_first_use(tmp_path, monkeypatch):
 
     assert store.collection.count() == 1
     assert kb_retriever.get_store() is store  # cached for the process
+
+
+def test_get_store_is_built_once_under_concurrent_first_calls(monkeypatch):
+    import threading
+    import time
+
+    built = []
+
+    class SlowStore:
+        def __init__(self, persist_dir):
+            time.sleep(0.05)  # widen the race window
+            built.append(self)
+            self.collection = type("C", (), {"count": staticmethod(lambda: 1)})()
+
+    monkeypatch.setattr(kb_retriever, "_store", None)
+    monkeypatch.setattr(kb_retriever, "KnowledgeStore", SlowStore)
+
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(kb_retriever.get_store()))
+               for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(built) == 1
+    assert all(store is built[0] for store in results)

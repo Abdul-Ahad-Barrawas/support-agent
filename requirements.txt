@@ -16,6 +16,7 @@ pandas>=2.2.0               # Data wrangling
 scikit-learn>=1.5.0         # Classification metrics (precision, recall, F1)
 python-dotenv>=1.0.0        # Env variable management
 kagglehub>=1.0.0            # Downloads the raw ticket dataset into data/raw/
+tqdm>=4.66.0                # Evaluation progress bars
 
 # === Dev & Testing ===
 pytest>=8.0.0               # Unit tests

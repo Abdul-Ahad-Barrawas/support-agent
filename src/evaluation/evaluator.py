@@ -16,16 +16,23 @@ Aim for 50-100 rows covering all intent types and priority levels.
 Run from the repo root:
     python -m src.evaluation.evaluator              # full agent only
     python -m src.evaluation.evaluator --ablation   # all 4 variants
+    python -m src.evaluation.evaluator --ablation --workers 4   # gentler on rate limits
 """
 
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import IO
 
 import pandas as pd
 from sklearn.metrics import f1_score
+from tqdm import tqdm
 
 from config.settings import CONFIDENCE_THRESHOLD, GOLDEN_SET_PATH
 from src.agent.state import new_ticket_state
+
+# Tickets are independent and the time goes on waiting for the LLM API, so
+# several run at once. Lower it if the provider starts returning 429s.
+DEFAULT_WORKERS = 8
 
 REQUIRED_COLUMNS = [
     "ticket_text",
@@ -80,30 +87,54 @@ def is_degraded(result: dict) -> bool:
     return any("failed" in step for step in result.get("reasoning_trace", []))
 
 
-def predict(agent, golden_set: pd.DataFrame) -> pd.DataFrame:
-    """Run the agent on every golden ticket; one row of predictions per ticket."""
-    rows = []
-    for i, row in golden_set.iterrows():
-        try:
-            result = agent.invoke(new_ticket_state(row["ticket_text"], ticket_id=f"golden-{i}"))
-            rows.append({
-                "predicted_intent": result.get("intent"),
-                "predicted_priority": result.get("priority"),
-                "predicted_action": result.get("final_action"),
-                "drafted_response": result.get("drafted_response", ""),
-                "error": None,
-                "degraded": is_degraded(result),
-            })
-        except Exception as e:
-            # Errored rows stay in the table and score as wrong — never dropped
-            rows.append({
-                "predicted_intent": None,
-                "predicted_priority": None,
-                "predicted_action": None,
-                "drafted_response": "",
-                "error": f"{type(e).__name__}: {e}",
-                "degraded": True,
-            })
+def predict_one(agent, ticket_text: str, ticket_id: str) -> dict:
+    """Run the agent on one ticket and flatten the result into a prediction row."""
+    try:
+        result = agent.invoke(new_ticket_state(ticket_text, ticket_id=ticket_id))
+        return {
+            "predicted_intent": result.get("intent"),
+            "predicted_priority": result.get("priority"),
+            "predicted_action": result.get("final_action"),
+            "drafted_response": result.get("drafted_response", ""),
+            "error": None,
+            "degraded": is_degraded(result),
+        }
+    except Exception as e:
+        # Errored rows stay in the table and score as wrong — never dropped
+        return {
+            "predicted_intent": None,
+            "predicted_priority": None,
+            "predicted_action": None,
+            "drafted_response": "",
+            "error": f"{type(e).__name__}: {e}",
+            "degraded": True,
+        }
+
+
+def predict(agent, golden_set: pd.DataFrame, workers: int = DEFAULT_WORKERS,
+            desc: str = "Evaluating", progress: bool = True, position: int = 0) -> pd.DataFrame:
+    """
+    Run the agent on every golden ticket, `workers` at a time.
+    One row of predictions per ticket, in golden-set order.
+    """
+    tickets = list(golden_set["ticket_text"])
+    rows = [None] * len(tickets)
+    degraded = 0
+
+    with ThreadPoolExecutor(max_workers=workers) as pool, \
+            tqdm(total=len(tickets), desc=desc, unit="ticket", position=position,
+                 disable=not progress, dynamic_ncols=True) as bar:
+        futures = {
+            pool.submit(predict_one, agent, text, f"golden-{i}"): i
+            for i, text in enumerate(tickets)
+        }
+        for future in as_completed(futures):
+            row = future.result()
+            rows[futures[future]] = row
+            # Live count, so a rate-limited or broken run is obvious within seconds
+            degraded += row["degraded"]
+            bar.set_postfix(degraded=degraded, refresh=False)
+            bar.update()
 
     return pd.concat([golden_set.reset_index(drop=True), pd.DataFrame(rows)], axis=1)
 
@@ -137,9 +168,9 @@ def score_predictions(predictions: pd.DataFrame) -> dict:
     }
 
 
-def run_evaluation(agent, golden_set: pd.DataFrame) -> dict:
+def run_evaluation(agent, golden_set: pd.DataFrame, **predict_kwargs) -> dict:
     """Run the agent on the golden set and return its metrics."""
-    return score_predictions(predict(agent, golden_set))
+    return score_predictions(predict(agent, golden_set, **predict_kwargs))
 
 
 def default_variants(confidence_threshold: float = CONFIDENCE_THRESHOLD) -> dict:
@@ -155,9 +186,24 @@ def default_variants(confidence_threshold: float = CONFIDENCE_THRESHOLD) -> dict
     }
 
 
-def run_ablation(agent_variants: dict, golden_set: pd.DataFrame) -> pd.DataFrame:
-    """Evaluate every variant on the same golden set; one row per variant."""
-    results = {name: run_evaluation(agent, golden_set) for name, agent in agent_variants.items()}
+def run_ablation(agent_variants: dict, golden_set: pd.DataFrame,
+                 workers: int = DEFAULT_WORKERS, progress: bool = True) -> pd.DataFrame:
+    """
+    Evaluate every variant on the same golden set; one row per variant.
+    Variants run side by side (one progress bar each), each with `workers`
+    tickets in flight — so the whole ablation takes about as long as one variant.
+    """
+    names = list(agent_variants)
+    width = max(len(name) for name in names)
+
+    with ThreadPoolExecutor(max_workers=len(names)) as pool:
+        futures = {
+            name: pool.submit(run_evaluation, agent_variants[name], golden_set, workers=workers,
+                              desc=name.ljust(width), progress=progress, position=i)
+            for i, name in enumerate(names)
+        }
+        results = {name: futures[name].result() for name in names}
+
     return pd.DataFrame.from_dict(results, orient="index").rename_axis("variant")
 
 
@@ -167,6 +213,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate the agent on the golden set")
     parser.add_argument("--ablation", action="store_true", help="run all 4 variants")
     parser.add_argument("--golden-set", default=GOLDEN_SET_PATH)
+    parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS,
+                        help=f"tickets in flight per variant (default {DEFAULT_WORKERS})")
     args = parser.parse_args()
 
     golden = load_golden_set(args.golden_set)
@@ -174,4 +222,8 @@ if __name__ == "__main__":
     if not args.ablation:
         variants = {"Full agent": variants["Full agent"]}
 
-    print(run_ablation(variants, golden).round(3).to_string())
+    table = run_ablation(variants, golden, workers=args.workers)
+    print("\n" + table.round(3).to_string())
+    if table["n_degraded"].any():
+        print("\nWARNING: some tickets hit tool fallbacks (n_degraded > 0) — "
+              "those scores understate the agent. Check rate limits / API errors.")

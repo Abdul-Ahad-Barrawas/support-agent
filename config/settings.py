@@ -9,6 +9,10 @@ load_dotenv(override=False)
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openrouter")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-oss-120b")
 LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-oss-120b")  # used by groq / openai
+# Total seconds per LLM request attempt (enforced by src/llm.DeadlineTransport),
+# so one stalled upstream provider can't freeze an evaluation run
+LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "60"))
+LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "2"))
 
 # Agent
 COMPANY_NAME = os.getenv("COMPANY_NAME", "Acme Cloud")

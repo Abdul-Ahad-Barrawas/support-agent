@@ -6,6 +6,8 @@ Owner: Strong technical member (retrieval logic)
         + Non-technical member (KB content curation)
 """
 
+import threading
+
 from config.settings import CHROMA_PERSIST_DIR, KNOWLEDGE_BASE_DIR
 from src.agent.state import TicketState
 from src.knowledge.vector_store import KnowledgeStore
@@ -13,15 +15,20 @@ from src.knowledge.vector_store import KnowledgeStore
 TOP_K = 3
 
 _store = None
+_store_lock = threading.Lock()
 
 
 def get_store() -> KnowledgeStore:
     """Open the store once per process, indexing the KB on first ever run."""
     global _store
-    if _store is None:
-        _store = KnowledgeStore(CHROMA_PERSIST_DIR)
-        if _store.collection.count() == 0:
-            _store.load_from_directory(KNOWLEDGE_BASE_DIR)
+    # The evaluator runs tickets in threads — without the lock, the first few
+    # would each load the embedding model and race to index the KB
+    with _store_lock:
+        if _store is None:
+            store = KnowledgeStore(CHROMA_PERSIST_DIR)
+            if store.collection.count() == 0:
+                store.load_from_directory(KNOWLEDGE_BASE_DIR)
+            _store = store
     return _store
 
 
